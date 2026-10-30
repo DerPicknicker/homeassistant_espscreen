@@ -1,5 +1,11 @@
 ## Unreleased
 
+- **Experimental round controls.** Full-disc brightness, media volume and sensor graphs use circular layouts with
+  curved headings and compact page dots. Round settings show one setting at a time; swipes wrap between pages and
+  stay separate from dial drags. Media artwork uses the existing picture loader and kept-page cache. Optional
+  rotary input adds accelerated value adjustment and settings navigation. The LilyGO hardware profile has been
+  tested only on the SH8601 / CHSC5816 revision; the CO5300 / CST816 revision is untested.
+
 - **An ESP32-S3 screen no longer restarts when a camera opens full screen next to a live tile.** The S3 holds one live stream at a time, and the full view could open beside a live tile that had not stopped yet, which ran the screen out of memory. The view now waits for the tile, and no stream opens when the screen's memory is already too tight for one; it shows its pictures instead.
 
 ## 0.4.92 (firmware 0.58.0)

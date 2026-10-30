@@ -1,0 +1,39 @@
+# Optional physical input. Only profiles including this package compile its adapter.
+# The board supplies the pins; all UI behavior stays in the shared C++ helpers.
+esphome:
+  platformio_options:
+    build_flags:
+      - -DSD_INPUT_ROTARY
+
+sensor:
+  - platform: rotary_encoder
+    id: screen_knob_steps
+    internal: true
+    pin_a:
+      number: ${ROTARY_PIN_A}
+      mode: INPUT_PULLUP
+    pin_b:
+      number: ${ROTARY_PIN_B}
+      mode: INPUT_PULLUP
+    # Full quadrature sequences reject contact bounce before emitting a detent.
+    resolution: 1
+    restore_mode: ALWAYS_ZERO
+    on_clockwise:
+      - lambda: runtime_tiles::rotary::turn(1);
+    on_anticlockwise:
+      - lambda: runtime_tiles::rotary::turn(-1);
+
+binary_sensor:
+  - platform: gpio
+    id: screen_knob_button
+    internal: true
+    pin:
+      number: ${ROTARY_PIN_BUTTON}
+      mode: INPUT_PULLUP
+      inverted: true
+    filters:
+      - delayed_on_off: 20ms
+    on_press:
+      - lambda: runtime_tiles::rotary::press();
+    on_release:
+      - lambda: runtime_tiles::rotary::release();

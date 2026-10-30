@@ -44,6 +44,9 @@
 #include "settings_screen.h"
 #include "climate_card.h"
 #include "screen_input.h"
+#ifdef SD_INPUT_ROTARY
+#include "rotary_input.h"
+#endif
 #include "light_controls.h"
 #include "effects_page.h"
 #include "media_library.h"
@@ -87,12 +90,20 @@
 #include "climate_tile.h"
 #include "swipe_profile.h"
 #include "lvgl.h"
+#ifdef SD_MOD_ROUND_FRAME
+#include "module_round_frame.h"
+#include "dial.h"
+#endif
 #include <functional>
 #include <algorithm>
 #include <new>
 #include <cstdlib>
 
 namespace runtime_tiles {
+#ifdef SD_INPUT_ROTARY
+namespace rotary { inline void reset(); }
+#endif
+
 // What the screen says, in the language its firmware was built for (screen_text.h, app 0.2.90).
 using screen_text::fill;
 using screen_text::plural;
@@ -664,6 +675,16 @@ struct Widgets {
   // A plugin tile's card (docs/PLUGINS.md, plugin_host.cpp): the plugin's object; it goes with the card's extra layer.
   plugin_host::Card *plugin{};
 };
+// Both media presentations keep their image in the same reserved part, so the
+// existing cache ownership, eviction and kept-page paths remain the only owner.
+inline bool media_cover_parts(const Widgets &w) {
+  if(w.extra_mode=="media")return true;
+#ifdef SD_MOD_ROUND_FRAME
+  return w.extra_mode=="round_disc";
+#else
+  return false;
+#endif
+}
 // A page is being built off the glass (warm_page): its cards ask for no pictures and wake nothing.
 inline bool warming=false;
 constexpr unsigned POINT_BUFFER = 128;
@@ -8720,6 +8741,11 @@ inline std::string key_value(const Tile &t){
   if(t.unit=="%")return screen_text::percent((int)std::lround(number));
   return text;
 }
+#ifdef SD_MOD_ROUND_FRAME
+#define SMART_DISPLAY_ROUND_CARDS_SITE
+#include "round_cards.h"
+#undef SMART_DISPLAY_ROUND_CARDS_SITE
+#endif
 inline void render_slot(size_t slot) {
   swipe_profile::SlotTimer slot_timer(slot);
   swipe_profile::Lap lap;
@@ -8727,6 +8753,10 @@ inline void render_slot(size_t slot) {
   if(!w.tile || w.index>=model.count)return;
   const auto &t = model.tiles[w.index];
   auto d=t.domain();
+#ifdef SD_MOD_ROUND_FRAME
+  if (round_frame::active && round_cards::render(w, t)) return;
+  round_cards::leave(w);
+#endif
   // A slot is another tile on another page: only a camera card that waits for its picture keeps a spinner.
   if(w.loading&&!(t.live()||t.is_map()||t.favorite()))lv_obj_add_flag(w.loading,LV_OBJ_FLAG_HIDDEN);
   label(w.title, t.name.empty() ? t.entity : t.name);
@@ -9833,6 +9863,25 @@ inline const header_bar::Bar *shown_bar() {
 }
 inline page_header::Renderer header_renderer;
 inline void draw_header(bool live) {
+#ifdef SD_MOD_ROUND_FRAME
+  static bool was_round = false;
+  if (round_frame::active) {
+    if (!was_round) header_renderer.reset();
+    was_round = true;
+    const auto &w = widgets[0];
+    const bool art = w.extra_mode == "round_disc" && w.index < model.count &&
+                     model.tiles[w.index].domain() == "media_player" && w.parts[MEDIA_PICTURE];
+    round_frame::header(room_label, time_label, settings_screen::hold_area, header_name,
+                        small_font ? small_font : header_text_font, art ? theme::CAMERA_INK : theme::INK);
+    return;
+  }
+  if (was_round && room_label) {
+    round_frame::hide_header();
+    lv_obj_remove_flag(room_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_text_align(room_label, LV_TEXT_ALIGN_LEFT, 0);
+  }
+  was_round = false;
+#endif
   const int index = shown_page ? *shown_page : 0;
   const auto *record = model.configured && index >= 0 && static_cast<size_t>(index) < model.page_data.records.size()
                      ? &model.page_data.records[index] : nullptr;
@@ -10195,6 +10244,11 @@ inline int place_page(int page, bool kept = false) {
   }
   std::array<size_t,CELLS_MAX> shown;shown.fill(grid.max_tiles());
   for(size_t i=0;model.configured && i<model.count;++i)if(placement[i].page==page && placement[i].slot<shown.size())shown[placement[i].slot]=i;
+#ifdef SD_MOD_ROUND_FRAME
+  round_frame::active = ui::surface_shape == ui::SurfaceShape::round && shown[0] < model.count &&
+                        round_cards::supported(model.tiles[shown[0]]);
+  round_frame::grid(tile_grid, small_font ? small_font : header_text_font);
+#endif
   // A bedside clock takes the whole page; its keys take the cards of the cells it covers (firmware 0.8.0+).
   if(model.configured && shown[0]<model.count && model.tiles[shown[0]].is_bedside() && model.tiles[shown[0]].full)
     for(size_t i=0;i<model.count;++i){
@@ -10239,8 +10293,17 @@ inline int place_page(int page, bool kept = false) {
   const int previous=detail?navigation_history.target(model.page_data,page):model.page_data.step(page,-1);
   page_bar::enable(nav_prev,previous!=page);
   page_bar::enable(nav_next,model.page_data.step(page,1)!=page);
+#ifdef SD_MOD_ROUND_FRAME
+  round_frame::navigation(nav_prev, nav_next, nav_number);
+#endif
   // The dots between the two chevrons (firmware 0.2.69+): the page on screen in ink.
-  if(sequential && nav_number)page_bar::dots(nav_number,model.page_data.ordinal(page),sequential_count);
+  if(sequential && nav_number) {
+#ifdef SD_MOD_ROUND_FRAME
+    if (round_frame::active) round_frame::dots(nav_number, model.page_data.ordinal(page), sequential_count);
+    else
+#endif
+    page_bar::dots(nav_number,model.page_data.ordinal(page),sequential_count);
+  }
   // The cards are drawn from the sizes the grid gives them, so it lays out before anything reads one.
   if(tile_grid)lv_obj_update_layout(tile_grid);
   if(widgets[0].tile && widgets[0].index<model.count && model.tiles[widgets[0].index].is_bedside()){
@@ -10492,7 +10555,7 @@ inline void forget_kept() {
     // Their pictures go with what they showed: a picture object still pointing at a copy counts as drawing it, and the
     // store frees nothing a card draws, so the old layout's pictures stayed beside the new ones until the set showed
     // another page (GitHub #183). The cards are drawn anew with their own.
-    for (lv_obj_t *picture : {w.picture, w.extra_mode == "media" ? w.parts[MEDIA_PICTURE] : nullptr, face_picture(w)})
+    for (lv_obj_t *picture : {w.picture, media_cover_parts(w) ? w.parts[MEDIA_PICTURE] : nullptr, face_picture(w)})
       if (picture) { lv_image_set_src(picture, nullptr); lv_obj_add_flag(picture, LV_OBJ_FLAG_HIDDEN); }
     plugin_host::picture_let_go(w, nullptr);
     w.cover_shown.clear();
@@ -10883,7 +10946,8 @@ inline void tick() {
       if(w.extra_mode=="media" && w.extra && !lv_obj_has_flag(w.extra,LV_OBJ_FLAG_HIDDEN) && w.parts[5] && !lv_obj_has_flag(w.parts[5],LV_OBJ_FLAG_HIDDEN) && media_card::has_track(t.state))media_progress(t,w.parts[5],w.parts[6],w.media_bar_w);
       // A cover kept while the next one was on its way, whose wait ran out: the card draws itself again without it. A
       // stream that just became one (media_live) draws it again with "Live".
-      if(w.extra_mode=="media" && ((w.cover_hold && static_cast<int32_t>(esphome::millis()-w.cover_hold)>=0) || media_live(t)!=w.media_live))refresh_tile(w.index);
+      if((media_cover_parts(w) && w.cover_hold && static_cast<int32_t>(esphome::millis()-w.cover_hold)>=0) ||
+         (w.extra_mode=="media" && media_live(t)!=w.media_live))refresh_tile(w.index);
       // The second hand moves on its own: only its line is redrawn, and it hides during standby. Only while the
       // slot's parts are a dial: right after a page switch the slot already names the clock while its parts still
       // belong to the card drawn before (a forecast's hour labels take part 18 too), until the fill draws the dial.
@@ -10899,8 +10963,13 @@ inline void tick() {
 // open card painted in code is drawn again here, in the same pass, so no frame shows half of each look.
 inline void restyle() {
   each_card([](Widgets &w) { w.cached_active = -1; w.panel_dirty = true; });
-  if (nav_number && applied_bar && applied_page >= 0)
+  if (nav_number && applied_bar && applied_page >= 0) {
+#ifdef SD_MOD_ROUND_FRAME
+    if (round_frame::active) round_frame::dots(nav_number, model.page_data.ordinal(applied_page), model.page_data.count());
+    else
+#endif
     page_bar::dots(nav_number, model.page_data.ordinal(applied_page), model.page_data.count());
+  }
   header_renderer.restyle();
   if (room_label) { mark_all(); render(room_label); }
   if (detail_root && !lv_obj_has_flag(detail_root, LV_OBJ_FLAG_HIDDEN) && detail_tile()) show_detail(detail_index);
@@ -11119,7 +11188,7 @@ inline bool picture_shown(const lv_image_dsc_t *image) {
 #if LV_USE_IMAGE
   bool shown = false;
   auto on = [&](lv_obj_t *obj) { if (draws(obj, image)) shown = true; };
-  each_card([&](Widgets &w) { on(w.picture); if (w.extra_mode == "media") on(w.parts[MEDIA_PICTURE]); if (plugin_host::picture_draws(w, image)) shown = true; on(face_picture(w)); });
+  each_card([&](Widgets &w) { on(w.picture); if (media_cover_parts(w)) on(w.parts[MEDIA_PICTURE]); if (plugin_host::picture_draws(w, image)) shown = true; on(face_picture(w)); });
   on(media_detail_picture);
   on(camera_picture);
   on(alert_picture);
@@ -11137,7 +11206,7 @@ inline bool picture_shown(const lv_image_dsc_t *image) {
 // it may make way (picture_store::collect), and its page asks for it again when it comes back.
 inline bool picture_away(const lv_image_dsc_t *image) {
 #if LV_USE_IMAGE
-  const auto drawn = [&](Widgets &w) { return draws(w.picture, image) || (w.extra_mode == "media" && draws(w.parts[MEDIA_PICTURE], image)) || plugin_host::picture_draws(w, image) || draws(face_picture(w), image); };
+  const auto drawn = [&](Widgets &w) { return draws(w.picture, image) || (media_cover_parts(w) && draws(w.parts[MEDIA_PICTURE], image)) || plugin_host::picture_draws(w, image) || draws(face_picture(w), image); };
   for (auto &w : widgets) if (drawn(w)) return false;
   if (draws(media_detail_picture, image) || draws(camera_picture, image) || draws(alert_picture, image) || media_library::draws(image) ||
       plugin_host::card_draws(image))
@@ -11158,11 +11227,11 @@ inline void picture_let_go(const lv_image_dsc_t *image) {
 #if LV_USE_IMAGE
   for (auto *set : kept_sets) if (set) for (auto &w : *set) {
     bool took = false;
-    for (lv_obj_t *picture : {w.picture, w.extra_mode == "media" ? w.parts[MEDIA_PICTURE] : nullptr, face_picture(w)})
+    for (lv_obj_t *picture : {w.picture, media_cover_parts(w) ? w.parts[MEDIA_PICTURE] : nullptr, face_picture(w)})
       if (draws(picture, image)) { lv_image_set_src(picture, nullptr); lv_obj_add_flag(picture, LV_OBJ_FLAG_HIDDEN); took = true; }
     if (plugin_host::picture_let_go(w, image)) took = true;
     if (!took) continue;
-    if (w.extra_mode == "media") w.cover_shown.clear();
+    if (media_cover_parts(w)) w.cover_shown.clear();
     if (w.index < model.count) mark_tile(w.index);
   }
 #else
@@ -11326,11 +11395,19 @@ inline bool on_glass(const Widgets &w) {
 // A media tile's cover is here: the tile on the glass draws itself again, a kept page's card takes it at once.
 inline void tile_cover_arrived(size_t index) {
   each_card([&](Widgets &w) {
-    if (w.index != index || w.extra_mode != "media" || w.cover_entity.empty()) return;
+    if (w.index != index || !media_cover_parts(w) || w.cover_entity.empty()) return;
     if (on_glass(w)) { refresh_tile(index); return; }
     const std::string key = cover_key(w);
     if (auto *src = picture_of(key)) {
       w.parts[MEDIA_PICTURE] = media_picture_show(w.extra, w.parts[MEDIA_PICTURE], w.cover_rect, src);
+#ifdef SD_MOD_ROUND_FRAME
+      if(w.extra_mode=="round_disc" && w.parts[MEDIA_PICTURE]) {
+        lv_obj_move_to_index(w.parts[MEDIA_PICTURE],0);
+        // The cover also changes the round card's shade and text contrast.
+        // Use the normal change number so a kept page paints those on entry.
+        refresh_tile(index);
+      }
+#endif
       w.cover_shown = key;
       w.cover_hold = 0;
     }
@@ -11346,7 +11423,7 @@ inline void cover_forget_pictures() {
 #ifdef SD_MOD_VACUUM_CARD
   vacuum_card::forget_pictures();
 #endif
-  for (auto &w : widgets) if (w.extra_mode == "media" && w.parts[MEDIA_PICTURE]) { lv_obj_delete(w.parts[MEDIA_PICTURE]); w.parts[MEDIA_PICTURE] = nullptr; w.cover_shown.clear(); }
+  for (auto &w : widgets) if (media_cover_parts(w) && w.parts[MEDIA_PICTURE]) { lv_obj_delete(w.parts[MEDIA_PICTURE]); w.parts[MEDIA_PICTURE] = nullptr; w.cover_shown.clear(); }
 }
 inline void pictures_round();
 
@@ -13079,7 +13156,7 @@ inline void card_picture_wants() {
     if (!glass && !ahead) return;
     // A slot keeps the parts of the media card it drew last while it shows another tile (hide_extra), so the card's
     // cover is only this tile's while those parts are on it: a cover or camera tile in that slot asks for its own.
-    if (w.extra_mode == "media" && !w.cover_entity.empty() && w.extra && !lv_obj_has_flag(w.extra, LV_OBJ_FLAG_HIDDEN)) {
+    if (media_cover_parts(w) && !w.cover_entity.empty() && w.extra && !lv_obj_has_flag(w.extra, LV_OBJ_FLAG_HIDDEN)) {
       if (t.entity != w.cover_entity || t.extra().media_picture != w.cover_mark) return;
       const size_t index = w.index;
       loader.want(owners::tile(index), cover_picture({w.cover_entity, w.cover_mark, w.cover_size, w.cover_ground},
@@ -13759,7 +13836,11 @@ inline std::function<void(int target)> turn_page;
 // here. An edge or excluded page neither glows nor logs a move that did not run.
 inline bool step_page(int step) {
   if (!navigation_ready() || !shown_page || !turn_page) return false;
-  const int target = sequential_page(*shown_page, step);
+  int target = sequential_page(*shown_page, step);
+#ifdef SD_MOD_ROUND_FRAME
+  const bool round = round_frame::active;
+  if (round) target = round_input::wrapped_page(model.page_data, *shown_page, step);
+#endif
   if (target == *shown_page) return false;
   ESP_LOGI("touch", "page swipe: page %d -> %d", *shown_page, target);
   swipe_glow(step > 0 ? Edge::right : Edge::left);
@@ -13793,6 +13874,9 @@ inline bool starts_on_control(int x, int y) {
 namespace runtime_tiles {
 // The page dots of the tile pages' bar: a key that opens the Dock on a screen with the module, nothing without it.
 inline void page_dots_open(lv_obj_t *number) {
+#ifdef SD_MOD_ROUND_FRAME
+  if(ui::surface_shape==ui::SurfaceShape::round)return;
+#endif
 #ifdef SD_MOD_DOCK
   dock::dots_open(number);
 #else
@@ -13810,9 +13894,41 @@ inline uint32_t edge_pressed_ms = 0;
 inline void edge_press(int x, int y) {
   int sx = x, sy = y;
   screen_point(sx, sy);
+#ifdef SD_MOD_ROUND_FRAME
+  round_cards::edge_cancel();
+#endif
   edge_start_y = sy;
   edge_pressed_ms = lv_tick_get();
   screen_input::edge_swipe.begin(sx, sy, overlay_card::screen_width(), overlay_card::screen_height());
+#ifdef SD_MOD_ROUND_FRAME
+  // Defer a side-edge contact before LVGL can adjust it. Raw movement then
+  // chooses tangential dial adjustment or inward page navigation. Both feed the
+  // existing commit/guard paths. Rectangular screens keep their existing path.
+  const bool round_page = round_frame::active && enabled && navigation_ready() &&
+      !(swipe_blocked && swipe_blocked()) && !camera_visible() &&
+      !(detail_root && !lv_obj_has_flag(detail_root, LV_OBJ_FLAG_HIDDEN)) &&
+      !(card_open && card_open()) && !settings_screen::visible();
+  bool owns_round = round_page;
+#ifdef SD_MOD_DOCK
+  if(dock::open()) owns_round=false;
+#endif
+  // There is no bottom drawer on the full-disc overview. Consume that contact
+  // before LVGL can turn an upward swipe into a high brightness/volume value.
+  if(owns_round && screen_input::edge_swipe.bottom_armed()){
+    round_frame::edge_owned=true;
+    screen_input::touch_guard.consume();screen_input::edge_swipe.end();
+    for(auto *indev=lv_indev_get_next(nullptr);indev;indev=lv_indev_get_next(indev))lv_indev_wait_release(indev);
+    return;
+  }
+  round_frame::edge_owned = owns_round && swipe_pages &&
+      (screen_input::edge_swipe.top_armed() ||
+       (model.page_data.count()>1 && screen_input::edge_swipe.side_armed()));
+  if (round_frame::edge_owned) {
+    round_cards::edge_begin(sx, sy);
+    for (auto *indev = lv_indev_get_next(nullptr); indev; indev = lv_indev_get_next(indev)) lv_indev_wait_release(indev);
+    return;
+  }
+#endif
   if (screen_input::edge_swipe.armed() && starts_on_control(sx, sy)) {
     ESP_LOGI("touch", "edge swipe off: the touch starts on a slider");
     screen_input::edge_swipe.end();
@@ -13827,8 +13943,27 @@ inline void edge_move(int x, int y) {
   // The finger that opened the Dock carries it until it lets go.
   if (dock::lifting()) { dock::lift_move(sy); return; }
 #endif
+#ifdef SD_MOD_ROUND_FRAME
+  if (round_cards::edge_move(sx, sy)) {
+    screen_input::edge_swipe.end();
+    return;
+  }
+#endif
+#ifdef SD_MOD_ROUND_FRAME
+  // Three millimetres is enough once the round dial's contact intent is known.
+  // Keep the shared side/top/bottom tuning for every other view.
+  const auto gesture = screen_input::edge_swipe.update(sx, sy, round_frame::active ? ui::mm(3) : 0);
+#else
   const auto gesture = screen_input::edge_swipe.update(sx, sy);
+#endif
   if (gesture == Gesture::none) return;
+#ifdef SD_MOD_ROUND_FRAME
+  if(ui::surface_shape==ui::SurfaceShape::round && gesture==Gesture::home){
+    screen_input::touch_guard.consume();
+    for(auto *indev=lv_indev_get_next(nullptr);indev;indev=lv_indev_get_next(indev))lv_indev_wait_release(indev);
+    return;
+  }
+#endif
 #ifdef SD_MOD_DOCK
   // While the Dock is open a page turns only by a tap in it, and up from the bottom once more goes home: one swipe up
   // shows the Dock, a second one goes further out, as on a tablet. The Dock closes on the way (go_home closes every card).
@@ -13894,6 +14029,9 @@ inline void edge_move(int x, int y) {
 }
 
 inline void edge_release() {
+#ifdef SD_MOD_ROUND_FRAME
+  round_cards::edge_release();
+#endif
 #ifdef SD_MOD_DOCK
   dock::lift_release();
 #endif
@@ -13938,6 +14076,13 @@ inline void released() {
 }  // namespace touch_input
 // Invalidate contacts and asynchronous views before their old tile records are freed.
 inline void cancel_layout_input(bool invalidate_widgets) {
+#ifdef SD_INPUT_ROTARY
+  rotary::reset();
+#endif
+#ifdef SD_MOD_ROUND_FRAME
+  round_frame::edge_owned = false;
+  round_cards::edge_cancel();
+#endif
   prepare_cancel();
   screen_input::touch_guard.consume();
   screen_input::edge_swipe.end();
@@ -13961,4 +14106,9 @@ inline void cancel_layout_input(bool invalidate_widgets) {
     if (layout_changed) layout_changed();
   }
 }
+#ifdef SD_INPUT_ROTARY
+#define SMART_DISPLAY_ROTARY_CONTROL_SITE
+#include "rotary_control.h"
+#undef SMART_DISPLAY_ROTARY_CONTROL_SITE
+#endif
 }  // namespace runtime_tiles

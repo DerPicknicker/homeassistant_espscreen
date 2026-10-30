@@ -82,6 +82,22 @@ cancels. Both follow **Swipe between pages** for the swipe and `settings_screen:
 `screen.settings` tile, which opens the page with or without Home Assistant, and Home Assistant can open it
 with `esphome.<screen>_open_settings`.
 
+Experimental round screens show one menu group or setting at a time. The side keys move through the items, the
+centre opens a group or changes a toggle or choice, and the lower minus and plus keys adjust numeric values and
+times. The back key returns to the parent group or closes settings. Swipe down from the top edge to open settings;
+the full-disc overview has no bottom drawer.
+
+A profile can include `packages/features/rotary-input.yaml` and supply `ROTARY_PIN_A`, `ROTARY_PIN_B` and
+`ROTARY_PIN_BUTTON` for an optional encoder. The SH8601 LilyGO profile includes its built-in encoder. Turn to
+adjust a full-disc light or media volume, press for power or play/pause, and hold while turning to change pages.
+A hold without turning (at least 800 ms) opens settings. In settings, turn to browse, press to open a group or
+change a toggle or choice, and hold to go back. Press on a numeric setting to edit it; its value takes the accent
+colour. Turn to change it and press again to finish. Holding while turning browses settings even during editing.
+Value changes accelerate from one to two or five steps as rotation speeds up; navigation always moves one item.
+The first input on a dimmed screen only wakes it. Touch controls remain available. Profiles without this package
+compile no rotary adapter and keep their existing input behavior.
+
+
 The page is a menu of groups, each of which opens a page of its own:
 
 | Group | Rows |

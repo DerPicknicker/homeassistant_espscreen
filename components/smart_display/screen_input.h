@@ -183,9 +183,15 @@ class EdgeSwipe {
     inward_ = sideways_ = 0;
   }
   bool armed() const { return configured_ && (from_ != 0 || up_ || down_) && !done_; }
+  // A full-disc control may reserve side-edge contacts before LVGL can adjust it.
+  bool side_armed() const { return armed() && from_ != 0; }
+  bool top_armed() const { return armed() && down_; }
+  bool bottom_armed() const { return armed() && up_; }
   // The next page, the previous one, page 1, the settings page or nothing; fires at most once per touch. A finger
   // that starts in a corner where two bands meet is judged by the way it actually travels.
-  Gesture update(int x, int y) {
+  // A view may request less horizontal travel after resolving control ownership;
+  // top/bottom gestures and callers without an override keep their configured travel.
+  Gesture update(int x, int y, int side_travel = 0) {
     if (!armed()) return Gesture::none;
     const int dx = x - start_x_, dy = y - start_y_;
     const bool upright = std::abs(dy) > std::abs(dx);
@@ -208,7 +214,7 @@ class EdgeSwipe {
     const int inward = from_ == 1 ? dx : -dx;
     inward_ = std::max(inward_, inward);
     sideways_ = std::max(sideways_, std::abs(dy));
-    if (inward < travel_ || std::abs(dx) < std::abs(dy)) return Gesture::none;
+    if (inward < (side_travel > 0 ? side_travel : travel_) || std::abs(dx) < std::abs(dy)) return Gesture::none;
     done_ = true;
     return from_ == 1 ? Gesture::previous : Gesture::next;
   }

@@ -18,6 +18,7 @@ FULL_FLASH_MB = 8
 # name: the lowest tier that has it, and the define its code is gated by.
 MODULES = {
     # Up from the bottom edge opens a window of every page to pick from; lite goes home as before.
+    "round_frame": {"min_tier": "full", "define": "SD_MOD_ROUND_FRAME", "shape": "round"},
     "dock": {"min_tier": "full", "define": "SD_MOD_DOCK"},
     # The vacuum card with its map, its rooms and its routines; lite keeps the card it had.
     "vacuum_card": {"min_tier": "full", "define": "SD_MOD_VACUUM_CARD"},
@@ -39,7 +40,7 @@ def tier_for_flash(flash_mb):
     return "full" if flash_mb is None or flash_mb >= FULL_FLASH_MB else "lite"
 
 
-def modules_for(tier):
+def modules_for(tier, shape="rectangular"):
     """The names of the modules a screen of `tier` gets, in the table's order."""
     rank = TIERS.index(tier)
-    return [name for name, m in MODULES.items() if TIERS.index(m["min_tier"]) <= rank]
+    return [name for name, m in MODULES.items() if TIERS.index(m["min_tier"]) <= rank and m.get("shape", shape) == shape]

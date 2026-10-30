@@ -130,7 +130,7 @@ def tier(board):
 
 def modules(board):
     """The modules a screen of this board has, by its tier (docs/MODULES.md)."""
-    return _modules().modules_for(tier(board))
+    return _modules().modules_for(tier(board), board_values(board).get("DISPLAY_SHAPE", "rectangular"))
 
 
 def wide_slots(board):

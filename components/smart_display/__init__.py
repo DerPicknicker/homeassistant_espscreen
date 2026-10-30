@@ -29,6 +29,7 @@ def _language(value):
 
 
 CONF_FLASH_MB = "flash_mb"
+CONF_SURFACE_SHAPE = "surface_shape"
 CONF_CAMERA_ORIENTATION = "camera_orientation"
 
 
@@ -46,6 +47,7 @@ CONFIG_SCHEMA = cv.Schema({
     # The flash a host build stands in for (tools/render/host.py), which has no esp32 block to read it from.
     cv.Optional(CONF_FLASH_MB): cv.positive_int,
     cv.Optional(CONF_CAMERA_ORIENTATION, default=0): _camera_orientation,
+    cv.Optional(CONF_SURFACE_SHAPE, default="rectangular"): cv.one_of("rectangular", "round", lower=True),
 })
 
 
@@ -145,9 +147,12 @@ def _flash_mb(config):
 def _tier(config):
     tier = modules.tier_for_flash(_flash_mb(config))
     cg.add_define(f"SD_TIER_{tier.upper()}")
-    for name in modules.modules_for(tier):
+    selected = modules.modules_for(tier, config[CONF_SURFACE_SHAPE])
+    if "round_frame" in selected:
+        cg.add_build_flag("-DLV_USE_ARC=1")
+    for name in selected:
         cg.add_define(modules.MODULES[name]["define"])
-    _LOGGER.info("Tier %s: %s", tier, ", ".join(modules.modules_for(tier)) or "no modules")
+    _LOGGER.info("Tier %s: %s", tier, ", ".join(selected) or "no modules")
 
 
 # ---- The ESP32-P4 boards' network (docs/CAMERA.md, "Live on the P4 boards") ----

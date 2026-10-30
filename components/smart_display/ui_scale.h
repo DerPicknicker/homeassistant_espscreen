@@ -14,18 +14,22 @@
 #include <cstdint>
 #include <initializer_list>
 #include <string>
+#include "surface_geometry.h"
 
 namespace ui {
 enum class Look : uint8_t { standard, compact };
 inline Look look = Look::standard;
 inline int dpi = 170;
 inline int scale_pct = 100;
+inline SurfaceShape surface_shape = SurfaceShape::rectangular;
 inline int reference_dpi(Look l) { return l == Look::compact ? 143 : 170; }
-inline void configure(int display_dpi, const std::string &look_name) {
+inline void configure(int display_dpi, const std::string &look_name, const std::string &shape_name = "rectangular") {
   look = look_name == "compact" ? Look::compact : Look::standard;
   dpi = display_dpi > 0 ? display_dpi : reference_dpi(look);
   scale_pct = (dpi * 100 + reference_dpi(look) / 2) / reference_dpi(look);
+  surface_shape = shape_name == "round" ? SurfaceShape::round : SurfaceShape::rectangular;
 }
+inline SurfaceGeometry surface_geometry(int width, int height) { return {width, height, surface_shape}; }
 // A size of the reference look, in this board's pixels.
 inline int px(int n) {
   if (scale_pct == 100) return n;

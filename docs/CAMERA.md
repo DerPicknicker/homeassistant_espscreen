@@ -41,6 +41,12 @@ screen cannot show camera pictures", `server.py` and `page_service.py`).
 
 ## The album cover on the media card
 
+Experimental round full-page media cards reuse the same album-cover request and cache. The cover fills the disc,
+with a dark layer behind the track, artist and volume text. Previous and next keys appear
+only when the player supports them. Play/pause and volume use the usual media actions, and the optional encoder
+controls the same volume ring. Without a cover the card keeps its plain theme background. Rectangular media cards
+keep their existing layout.
+
 App 0.2.77 with firmware 0.2.64 uses the same road for a media player's picture. The media card
 (a tap on a media player's tile, or a media tile of size *Full page*) shows the album cover of
 what plays, with the title, the artist and the album, a progress bar and the keys under it.

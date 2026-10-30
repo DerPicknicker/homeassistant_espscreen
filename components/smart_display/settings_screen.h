@@ -11,6 +11,9 @@
 #include "screen_settings.h"
 #include "screen_text.h"
 #include "ui_scale.h"
+#ifdef SD_MOD_ROUND_FRAME
+#include "round_settings_layout.h"
+#endif
 
 // The settings page on the screen itself (firmware 0.2.44+). It changes the same values ESP Screen
 // Manager writes, for the moments you stand in front of the panel instead of behind a browser.
@@ -517,6 +520,9 @@ namespace settings_screen {
 
 // Bound by the board profile on boot: the fonts of the board and what the page may do to it.
 inline const lv_font_t *title_font = nullptr, *row_font = nullptr, *icon_font = nullptr;
+#ifdef SD_MOD_ROUND_FRAME
+inline const lv_font_t *round_font = nullptr;
+#endif
 inline std::function<bool()> may_open;   // awake, no calibration, runtime tiles alive
 inline std::function<int()> drift;       // how far the finger travelled during this touch
 inline std::function<void()> before_open;  // close whatever card is open first
@@ -531,6 +537,11 @@ inline int tap_limit = 0;
 // board with 60 KB of free heap can afford a settings page at all.
 inline lv_obj_t *root = nullptr, *hold_area = nullptr, *hold_bar = nullptr;
 inline uint8_t current_page = 0, first_row = 0;
+#ifdef SD_INPUT_ROTARY
+inline bool knob_editing = false;
+inline int knob_row = -1, knob_page = -1;
+inline void knob_reset() { knob_editing=false; knob_row=knob_page=-1; }
+#endif
 inline int confirm_row = -1;             // the action row that asked "tap again"
 inline lv_timer_t *confirm_timer = nullptr;
 
@@ -647,6 +658,14 @@ inline void refresh() {
       if (text != lv_label_get_text(d.value)) lv_label_set_text(d.value, text.c_str());
     }
     if (d.knob) move_knob(d, row);
+#ifdef SD_INPUT_ROTARY
+    if (knob_page != current_page || knob_row < 0) {
+      knob_page=current_page;knob_row=drawn[0].row;knob_editing=false;
+    }
+    if(d.label && !d.lit)lv_obj_set_style_text_color(d.label,theme::color(knob_row==d.row?theme::ACCENT:theme::INK),0);
+    if(d.value && (row.kind==Kind::number || row.kind==Kind::duration || row.kind==Kind::moment))
+      lv_obj_set_style_text_color(d.value,theme::color(knob_row==d.row && knob_editing?theme::ACCENT:theme::INK),0);
+#endif
     // A row whose switch is off (night times, the standby levels) is there but does nothing, and says so.
     bool live = live_row(row);
     const lv_opa_t opa = live ? LV_OPA_COVER : LV_OPA_50;
@@ -698,9 +717,7 @@ inline void step_event(lv_event_t *event) {
   put(row, next);
   refresh();
 }
-inline void row_event(lv_event_t *event) {
-  if (!steady(tap_limit)) return;
-  int index = (int) (intptr_t) lv_event_get_user_data(event);
+inline void activate_row(int index) {
   const Page &page = page_at(current_page);
   if (index < 0 || index >= page.count) return;
   const Row &row = page.rows[index];
@@ -725,8 +742,19 @@ inline void row_event(lv_event_t *event) {
     draw();
   }
 }
+inline void row_event(lv_event_t *event) {
+  if (!steady(tap_limit)) return;
+#ifdef SD_INPUT_ROTARY
+  knob_reset();
+#endif
+  activate_row(static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(event))));
+}
+
 inline void close();
 inline void back_event(lv_event_t *) {
+#ifdef SD_INPUT_ROTARY
+  knob_reset();
+#endif
   forget_confirm();
   if (current_page == 0) { close(); return; }
   current_page = page_at(current_page).parent;
@@ -735,6 +763,9 @@ inline void back_event(lv_event_t *) {
 }
 inline uint8_t rows_per_page = 1;
 inline void pager_step(int step) {
+#ifdef SD_INPUT_ROTARY
+  knob_reset();
+#endif
   int next = (int) first_row + step * (int) rows_per_page;
   if (next < 0) return;
   first_row = (uint8_t) next;
@@ -742,9 +773,18 @@ inline void pager_step(int step) {
   draw();
 }
 
+#ifdef SD_MOD_ROUND_FRAME
+#define SMART_DISPLAY_ROUND_SETTINGS_SITE
+#include "settings_round.h"
+#undef SMART_DISPLAY_ROUND_SETTINGS_SITE
+#endif
+
 // ---- drawing ----
 inline void draw() {
   if (!root) return;
+#ifdef SD_MOD_ROUND_FRAME
+  if(ui::surface_shape==ui::SurfaceShape::round){round_view::draw();return;}
+#endif
   Metrics m = metrics();
   lv_obj_clean(root);
   drawn_count = 0;
@@ -861,6 +901,9 @@ inline void hide_hold_bar() {
 }
 
 inline void open(uint8_t page = 0) {
+#ifdef SD_INPUT_ROTARY
+  knob_reset();
+#endif
   hide_hold_bar();
   current_page = page < page_total() ? page : 0;
   first_row = 0;
@@ -880,6 +923,9 @@ inline void open(uint8_t page = 0) {
 }
 
 inline void close() {
+#ifdef SD_INPUT_ROTARY
+  knob_reset();
+#endif
   forget_confirm();
   drawn_count = 0;
   if (root) { lv_obj_delete(root); root = nullptr; }
@@ -955,5 +1001,10 @@ inline void attach_hold(lv_obj_t *page, int x, int y, int width, int height, lv_
   }
 }
 
+#ifdef SD_INPUT_ROTARY
+#define SMART_DISPLAY_ROTARY_SETTINGS_SITE
+#include "rotary_settings.h"
+#undef SMART_DISPLAY_ROTARY_SETTINGS_SITE
+#endif
 }  // namespace settings_screen
 #endif

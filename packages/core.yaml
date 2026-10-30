@@ -34,6 +34,7 @@ substitutions:
   # an update changes nothing there. New screen writes "1" into a new screen's own YAML, which then swipes and opens the
   # Dock out of the box. Once the screen stores a choice (any change of a setting), that choice wins. Keep "0" here.
   SWIPE_PAGES_DEFAULT: "0"
+  DISPLAY_SHAPE: "rectangular"                      # round boards select the optional round frame
 
   ## DIM settings
   AUTO_DIM: "true"                                 # true = enable auto dimming
@@ -299,7 +300,7 @@ esphome:
           };
           // The board states its density with the decimals it has (DISPLAY_DPI); the firmware scales by the nearest
           // whole number, the look took the exact one for its sizes.
-          ui::configure(atoi("${ (DISPLAY_DPI | float) | round | int }"), "${LOOK}");
+          ui::configure(atoi("${ (DISPLAY_DPI | float) | round | int }"), "${LOOK}", "${DISPLAY_SHAPE}");
           runtime_tiles::grid_bind(id(tile_scroll), atoi("${GRID_MARGIN}"), atoi("${PAGE_BAR_H}"));
           // Full: a tap on the page dots opens the Dock, the chevrons keep the bar's outer parts (the dock module).
           runtime_tiles::page_dots_open(id(page_number));
@@ -338,9 +339,22 @@ esphome:
       # writes, reachable by holding the top bar. Fonts and hooks only; the page itself is built
       # when it opens and thrown away when it closes, so it costs nothing while it is closed.
       - lambda: |-
+          #ifdef SD_INPUT_ROTARY
+          runtime_tiles::rotary::blocked = []() { return id(display_dimmed) || id(calibration_active) || id(alert_active); };
+          runtime_tiles::rotary::activity = []() {
+            if(id(calibration_active) || id(alert_active))return false;
+            id(last_touch_ms)=millis();id(last_use_ms)=millis();
+            if(id(display_dimmed)){id(wake_display).execute();return false;}
+            return true;
+          };
+          #endif
+      - lambda: |-
           if (!runtime_tiles::enabled) return;
           settings_screen::title_font = id(headline)->get_lv_font();
           settings_screen::row_font = id(sublabel_big)->get_lv_font();
+          #ifdef SD_MOD_ROUND_FRAME
+          settings_screen::round_font = id(sublabel)->get_lv_font();
+          #endif
           settings_screen::icon_font = id(materialdesign_icons_mini)->get_lv_font();
           settings_screen::store = []() { runtime_tiles::persist_settings(); };
           settings_screen::apply = []() {
@@ -2749,6 +2763,7 @@ script:
 smart_display:
   language: ${LANGUAGE}
   camera_orientation: ${CAMERA_ORIENTATION}
+  surface_shape: ${DISPLAY_SHAPE}
 
 # HA blueprint transport; never publishes the JSON command as an HA state.
 text:
